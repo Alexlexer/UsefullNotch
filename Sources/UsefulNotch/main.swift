@@ -38,6 +38,7 @@ app.delegate = appDelegate
 app.run()
 
 final class NotchPanelController {
+    private let expandedPanelSize = NSSize(width: 520, height: 118)
     private let panel: NSPanel
     private let contentView = NotchPanelView()
     private var targetFrame = NSRect.zero
@@ -53,7 +54,7 @@ final class NotchPanelController {
 
     init() {
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 118),
+            contentRect: NSRect(origin: .zero, size: expandedPanelSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -95,9 +96,11 @@ final class NotchPanelController {
             return
         }
 
-        let hiddenFrame = startFrame(from: panel.frame)
+        let expandedFrame = targetFrame == .zero ? positionedPanelFrame() : targetFrame
+        let hiddenFrame = startFrame(from: expandedFrame)
         isAnimating = true
 
+        panel.setFrame(expandedFrame, display: false)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -124,10 +127,9 @@ final class NotchPanelController {
         }
 
         let screenFrame = screen.visibleFrame
-        let panelSize = panel.frame.size
-        let x = screenFrame.midX - panelSize.width / 2
-        let y = screenFrame.maxY - panelSize.height - 8
-        return NSRect(origin: NSPoint(x: x, y: y), size: panelSize)
+        let x = screenFrame.midX - expandedPanelSize.width / 2
+        let y = screenFrame.maxY - expandedPanelSize.height - 8
+        return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
     }
 
     private func startFrame(from frame: NSRect) -> NSRect {
