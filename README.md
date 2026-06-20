@@ -18,13 +18,12 @@ From the project root:
 swift run UsefulNotch
 ```
 
-The app appears in the menu bar. Click the laptop icon to show or hide the notch panel.
+The app appears in the menu bar. Move your pointer near the top-center notch area to show the panel, or click the laptop icon to show or hide it manually.
 
 ## Project Direction
 
 Good next learning steps:
 
-- Add hover detection around the notch.
 - Support drag-and-drop files into the panel.
 - Add quick widgets: calendar, timers, clipboard history, and media controls.
 - Package the executable as a signed `.app`.

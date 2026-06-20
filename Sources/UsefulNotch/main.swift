@@ -3,6 +3,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var notchPanelController: NotchPanelController?
+    private var hoverController: NotchHoverController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -17,7 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = statusItem
 
         notchPanelController = NotchPanelController()
-        notchPanelController?.show()
+        if let notchPanelController {
+            hoverController = NotchHoverController(panelController: notchPanelController)
+            hoverController?.start()
+        }
     }
 
     @objc private func togglePanel() {
@@ -33,6 +37,14 @@ app.run()
 final class NotchPanelController {
     private let panel: NSPanel
     private let contentView = NotchPanelView()
+
+    var isVisible: Bool {
+        panel.isVisible
+    }
+
+    var frame: NSRect {
+        panel.frame
+    }
 
     init() {
         panel = NSPanel(
@@ -55,9 +67,13 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
     }
 
+    func hide() {
+        panel.orderOut(nil)
+    }
+
     func toggle() {
         if panel.isVisible {
-            panel.orderOut(nil)
+            hide()
         } else {
             show()
         }
@@ -73,6 +89,82 @@ final class NotchPanelController {
         let x = screenFrame.midX - panelSize.width / 2
         let y = screenFrame.maxY - panelSize.height - 8
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+}
+
+final class NotchHoverController {
+    private let panelController: NotchPanelController
+    private var hoverTimer: Timer?
+    private var hideTimer: Timer?
+
+    private let triggerWidth: CGFloat = 260
+    private let triggerHeight: CGFloat = 42
+    private let panelGraceArea: CGFloat = 18
+    private let hideDelay: TimeInterval = 0.45
+
+    init(panelController: NotchPanelController) {
+        self.panelController = panelController
+    }
+
+    func start() {
+        hoverTimer?.invalidate()
+        hoverTimer = Timer.scheduledTimer(
+            withTimeInterval: 0.08,
+            repeats: true
+        ) { [weak self] _ in
+            self?.update()
+        }
+    }
+
+    private func update() {
+        let mouseLocation = NSEvent.mouseLocation
+
+        if isInNotchTrigger(mouseLocation) || isInPanelGraceArea(mouseLocation) {
+            hideTimer?.invalidate()
+            hideTimer = nil
+
+            if !panelController.isVisible {
+                panelController.show()
+            }
+            return
+        }
+
+        scheduleHideIfNeeded()
+    }
+
+    private func scheduleHideIfNeeded() {
+        guard panelController.isVisible, hideTimer == nil else {
+            return
+        }
+
+        hideTimer = Timer.scheduledTimer(withTimeInterval: hideDelay, repeats: false) { [weak self] _ in
+            self?.panelController.hide()
+            self?.hideTimer = nil
+        }
+    }
+
+    private func isInNotchTrigger(_ point: NSPoint) -> Bool {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) else {
+            return false
+        }
+
+        let screenFrame = screen.frame
+        let triggerRect = NSRect(
+            x: screenFrame.midX - triggerWidth / 2,
+            y: screenFrame.maxY - triggerHeight,
+            width: triggerWidth,
+            height: triggerHeight
+        )
+
+        return triggerRect.contains(point)
+    }
+
+    private func isInPanelGraceArea(_ point: NSPoint) -> Bool {
+        guard panelController.isVisible else {
+            return false
+        }
+
+        return panelController.frame.insetBy(dx: -panelGraceArea, dy: -panelGraceArea).contains(point)
     }
 }
 
