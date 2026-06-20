@@ -48,7 +48,7 @@ final class NotchPanelController {
 
     init() {
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 88),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 118),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -170,12 +170,16 @@ final class NotchHoverController {
 
 final class NotchPanelView: NSView {
     private let titleLabel = NSTextField(labelWithString: "Useful Notch")
-    private let subtitleLabel = NSTextField(labelWithString: "Drag files here, pin quick notes, and launch tools.")
+    private let subtitleLabel = NSTextField(labelWithString: "Drop files here to keep them close.")
     private let stackView = NSStackView()
+    private let fileStackView = NSStackView()
+    private var fileURLs: [URL] = []
+    private var isDropTargeted = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        registerForDraggedTypes([.fileURL])
 
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = .white
@@ -190,13 +194,26 @@ final class NotchPanelView: NSView {
         stackView.addArrangedSubview(titleLabel)
         stackView.addArrangedSubview(subtitleLabel)
 
+        fileStackView.orientation = .horizontal
+        fileStackView.alignment = .centerY
+        fileStackView.spacing = 8
+        fileStackView.translatesAutoresizingMaskIntoConstraints = false
+
         addSubview(stackView)
+        addSubview(fileStackView)
 
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
             stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
-            stackView.centerYAnchor.constraint(equalTo: centerYAnchor)
+            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+
+            fileStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
+            fileStackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
+            fileStackView.topAnchor.constraint(equalTo: stackView.bottomAnchor, constant: 12),
+            fileStackView.heightAnchor.constraint(equalToConstant: 28)
         ])
+
+        updateFileShelf()
     }
 
     required init?(coder: NSCoder) {
@@ -207,12 +224,139 @@ final class NotchPanelView: NSView {
         super.draw(dirtyRect)
 
         let background = NSBezierPath(roundedRect: bounds, xRadius: 24, yRadius: 24)
-        NSColor(calibratedWhite: 0.05, alpha: 0.92).setFill()
+        let fillColor = isDropTargeted
+            ? NSColor(calibratedRed: 0.10, green: 0.16, blue: 0.14, alpha: 0.96)
+            : NSColor(calibratedWhite: 0.05, alpha: 0.92)
+        fillColor.setFill()
         background.fill()
 
         let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 23.5, yRadius: 23.5)
-        NSColor.white.withAlphaComponent(0.12).setStroke()
+        let borderColor = isDropTargeted
+            ? NSColor.systemMint.withAlphaComponent(0.75)
+            : NSColor.white.withAlphaComponent(0.12)
+        borderColor.setStroke()
         border.lineWidth = 1
         border.stroke()
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard hasFileURLs(sender) else {
+            return []
+        }
+
+        isDropTargeted = true
+        needsDisplay = true
+        return .copy
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isDropTargeted = false
+        needsDisplay = true
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
+        isDropTargeted = false
+        needsDisplay = true
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let droppedURLs = fileURLs(from: sender)
+        guard !droppedURLs.isEmpty else {
+            return false
+        }
+
+        fileURLs = Array((droppedURLs + fileURLs).uniqued().prefix(4))
+        updateFileShelf()
+
+        isDropTargeted = false
+        needsDisplay = true
+        return true
+    }
+
+    private func hasFileURLs(_ sender: NSDraggingInfo) -> Bool {
+        !fileURLs(from: sender).isEmpty
+    }
+
+    private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
+        sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+    }
+
+    private func updateFileShelf() {
+        fileStackView.arrangedSubviews.forEach { view in
+            fileStackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        if fileURLs.isEmpty {
+            fileStackView.addArrangedSubview(makeHintLabel())
+            return
+        }
+
+        fileURLs.forEach { url in
+            fileStackView.addArrangedSubview(FileChipView(fileURL: url))
+        }
+    }
+
+    private func makeHintLabel() -> NSTextField {
+        let label = NSTextField(labelWithString: "No files yet")
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = NSColor.white.withAlphaComponent(0.42)
+        return label
+    }
+}
+
+final class FileChipView: NSView {
+    private let iconView = NSImageView()
+    private let titleLabel = NSTextField(labelWithString: "")
+
+    init(fileURL: URL) {
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.10).cgColor
+
+        translatesAutoresizingMaskIntoConstraints = false
+
+        iconView.image = NSWorkspace.shared.icon(forFile: fileURL.path)
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.stringValue = fileURL.lastPathComponent
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = .white
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(iconView)
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 28),
+            widthAnchor.constraint(lessThanOrEqualToConstant: 142),
+
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 16),
+            iconView.heightAnchor.constraint(equalToConstant: 16),
+
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+extension Array where Element == URL {
+    func uniqued() -> [URL] {
+        var seen = Set<URL>()
+        return filter { seen.insert($0).inserted }
     }
 }
