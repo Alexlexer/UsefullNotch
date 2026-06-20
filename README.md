@@ -7,7 +7,9 @@ The first scaffold is a menu bar app that shows a floating panel centered near t
 Current behavior:
 
 - Hover near the notch area to reveal the panel.
+- Enjoy a smooth animated reveal with a soft ambient glow.
 - Drop files onto the panel to keep a small temporary shelf of recent files.
+- Feel lightweight trackpad haptics when the panel opens or files are added on supported Macs.
 - Click the menu bar laptop icon to show or hide the panel manually.
 
 ## Requirements

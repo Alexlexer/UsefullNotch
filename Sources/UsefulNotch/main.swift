@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -9,10 +10,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(
+        let statusImage = NSImage(
             systemSymbolName: "macbook",
             accessibilityDescription: "Useful Notch"
         )
+        statusItem.button?.image = statusImage
+        statusItem.button?.title = statusImage == nil ? "UN" : ""
         statusItem.button?.target = self
         statusItem.button?.action = #selector(togglePanel)
         self.statusItem = statusItem
@@ -37,9 +40,11 @@ app.run()
 final class NotchPanelController {
     private let panel: NSPanel
     private let contentView = NotchPanelView()
+    private var targetFrame = NSRect.zero
+    private var isAnimating = false
 
     var isVisible: Bool {
-        panel.isVisible
+        panel.isVisible || isAnimating
     }
 
     var frame: NSRect {
@@ -63,12 +68,46 @@ final class NotchPanelController {
     }
 
     func show() {
-        positionPanel()
+        guard !panel.isVisible else {
+            return
+        }
+
+        isAnimating = true
+        targetFrame = positionedPanelFrame()
+        panel.setFrame(startFrame(from: targetFrame), display: false)
+        panel.alphaValue = 0
         panel.orderFrontRegardless()
+        contentView.startAmbientAnimation()
+        Haptics.panelOpened()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(targetFrame, display: true)
+        } completionHandler: { [weak self] in
+            self?.isAnimating = false
+        }
     }
 
     func hide() {
-        panel.orderOut(nil)
+        guard panel.isVisible else {
+            return
+        }
+
+        let hiddenFrame = startFrame(from: panel.frame)
+        isAnimating = true
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(hiddenFrame, display: true)
+        } completionHandler: { [weak self] in
+            self?.panel.orderOut(nil)
+            self?.contentView.stopAmbientAnimation()
+            self?.isAnimating = false
+        }
     }
 
     func toggle() {
@@ -79,16 +118,20 @@ final class NotchPanelController {
         }
     }
 
-    private func positionPanel() {
+    private func positionedPanelFrame() -> NSRect {
         guard let screen = NSScreen.main else {
-            return
+            return panel.frame
         }
 
         let screenFrame = screen.visibleFrame
         let panelSize = panel.frame.size
         let x = screenFrame.midX - panelSize.width / 2
         let y = screenFrame.maxY - panelSize.height - 8
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        return NSRect(origin: NSPoint(x: x, y: y), size: panelSize)
+    }
+
+    private func startFrame(from frame: NSRect) -> NSRect {
+        frame.offsetBy(dx: 0, dy: 18).insetBy(dx: 18, dy: 8)
     }
 }
 
@@ -171,6 +214,7 @@ final class NotchHoverController {
 final class NotchPanelView: NSView {
     private let titleLabel = NSTextField(labelWithString: "Useful Notch")
     private let subtitleLabel = NSTextField(labelWithString: "Drop files here to keep them close.")
+    private let glowView = AmbientGlowView()
     private let stackView = NSStackView()
     private let fileStackView = NSStackView()
     private var fileURLs: [URL] = []
@@ -180,6 +224,8 @@ final class NotchPanelView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         registerForDraggedTypes([.fileURL])
+
+        glowView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = .white
@@ -199,10 +245,16 @@ final class NotchPanelView: NSView {
         fileStackView.spacing = 8
         fileStackView.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(glowView)
         addSubview(stackView)
         addSubview(fileStackView)
 
         NSLayoutConstraint.activate([
+            glowView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glowView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glowView.topAnchor.constraint(equalTo: topAnchor),
+            glowView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
             stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
@@ -220,13 +272,21 @@ final class NotchPanelView: NSView {
         nil
     }
 
+    func startAmbientAnimation() {
+        glowView.start()
+    }
+
+    func stopAmbientAnimation() {
+        glowView.stop()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
         let background = NSBezierPath(roundedRect: bounds, xRadius: 24, yRadius: 24)
         let fillColor = isDropTargeted
             ? NSColor(calibratedRed: 0.10, green: 0.16, blue: 0.14, alpha: 0.96)
-            : NSColor(calibratedWhite: 0.05, alpha: 0.92)
+            : NSColor(calibratedWhite: 0.04, alpha: 0.84)
         fillColor.setFill()
         background.fill()
 
@@ -245,17 +305,20 @@ final class NotchPanelView: NSView {
         }
 
         isDropTargeted = true
+        glowView.isDropTargeted = true
         needsDisplay = true
         return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         isDropTargeted = false
+        glowView.isDropTargeted = false
         needsDisplay = true
     }
 
     override func draggingEnded(_ sender: NSDraggingInfo) {
         isDropTargeted = false
+        glowView.isDropTargeted = false
         needsDisplay = true
     }
 
@@ -267,8 +330,10 @@ final class NotchPanelView: NSView {
 
         fileURLs = Array((droppedURLs + fileURLs).uniqued().prefix(4))
         updateFileShelf()
+        Haptics.filesAdded()
 
         isDropTargeted = false
+        glowView.isDropTargeted = false
         needsDisplay = true
         return true
     }
@@ -305,6 +370,126 @@ final class NotchPanelView: NSView {
         label.font = .systemFont(ofSize: 11, weight: .medium)
         label.textColor = NSColor.white.withAlphaComponent(0.42)
         return label
+    }
+}
+
+enum Haptics {
+    static func panelOpened() {
+        NSHapticFeedbackManager.defaultPerformer.perform(
+            .alignment,
+            performanceTime: .now
+        )
+    }
+
+    static func filesAdded() {
+        NSHapticFeedbackManager.defaultPerformer.perform(
+            .generic,
+            performanceTime: .now
+        )
+    }
+}
+
+final class AmbientGlowView: NSView {
+    var isDropTargeted = false {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    private var timer: Timer?
+    private var phase: CGFloat = 0
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = false
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func start() {
+        guard timer == nil else {
+            return
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            phase += 0.024
+            needsDisplay = true
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let clippingPath = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 23, yRadius: 23)
+        clippingPath.addClip()
+
+        NSColor.clear.setFill()
+        bounds.fill()
+
+        drawGlow(
+            color: NSColor.systemBlue,
+            center: animatedPoint(baseX: 0.28, baseY: 0.55, xWave: 0.09, yWave: 0.18, offset: 0),
+            radius: 190
+        )
+        drawGlow(
+            color: NSColor.systemPink,
+            center: animatedPoint(baseX: 0.70, baseY: 0.50, xWave: 0.11, yWave: 0.16, offset: 1.6),
+            radius: 170
+        )
+        drawGlow(
+            color: NSColor.systemTeal,
+            center: animatedPoint(baseX: 0.50, baseY: 0.35, xWave: 0.16, yWave: 0.10, offset: 3.1),
+            radius: 160
+        )
+
+        if isDropTargeted {
+            drawGlow(
+                color: NSColor.systemMint,
+                center: NSPoint(x: bounds.midX, y: bounds.midY),
+                radius: 220
+            )
+        }
+    }
+
+    private func animatedPoint(
+        baseX: CGFloat,
+        baseY: CGFloat,
+        xWave: CGFloat,
+        yWave: CGFloat,
+        offset: CGFloat
+    ) -> NSPoint {
+        NSPoint(
+            x: bounds.width * (baseX + sin(phase + offset) * xWave),
+            y: bounds.height * (baseY + cos(phase * 0.8 + offset) * yWave)
+        )
+    }
+
+    private func drawGlow(color: NSColor, center: NSPoint, radius: CGFloat) {
+        let alpha: CGFloat = isDropTargeted ? 0.38 : 0.24
+        let gradient = NSGradient(colors: [
+            color.withAlphaComponent(alpha),
+            color.withAlphaComponent(alpha * 0.32),
+            .clear
+        ])
+
+        gradient?.draw(
+            fromCenter: center,
+            radius: 0,
+            toCenter: center,
+            radius: radius,
+            options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation]
+        )
     }
 }
 

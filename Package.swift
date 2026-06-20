@@ -13,7 +13,11 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "UsefulNotch",
-            path: "Sources/UsefulNotch"
+            path: "Sources/UsefulNotch",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("QuartzCore")
+            ]
         )
     ]
 )
