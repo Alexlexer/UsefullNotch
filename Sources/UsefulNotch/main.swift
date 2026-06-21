@@ -70,7 +70,7 @@ app.delegate = appDelegate
 app.run()
 
 final class NotchPanelController {
-    private let expandedPanelSize = NSSize(width: 560, height: 190)
+    private let expandedPanelSize = NSSize(width: 540, height: 176)
     private let panel: NSPanel
     private let contentView = NotchPanelView()
     private let siriController = SiriNotchController()
@@ -247,16 +247,16 @@ final class NotchPanelController {
 
         let screenFrame = screen.visibleFrame
         let x = screenFrame.midX - expandedPanelSize.width / 2
-        let y = screenFrame.maxY - expandedPanelSize.height - 8
+        let y = screen.frame.maxY - expandedPanelSize.height
         return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
     }
 
     private func collapsedPillFrame(from frame: NSRect) -> NSRect {
         NSRect(
             x: frame.midX - 132,
-            y: frame.maxY - 42,
+            y: frame.maxY - 38,
             width: 264,
-            height: 42
+            height: 38
         )
     }
 }
@@ -525,14 +525,15 @@ final class NotchPanelView: NSView {
         background.addClip()
 
         let surfaceGradient = NSGradient(colors: [
-            NSColor.black.withAlphaComponent(isDropTargeted ? 0.38 : 0.34),
-            NSColor.black.withAlphaComponent(isDropTargeted ? 0.58 : 0.52)
+            NSColor.black.withAlphaComponent(isDropTargeted ? 0.30 : 0.24),
+            NSColor.black.withAlphaComponent(isDropTargeted ? 0.40 : 0.34),
+            NSColor.black.withAlphaComponent(isDropTargeted ? 0.54 : 0.46)
         ])
         surfaceGradient?.draw(in: bounds, angle: -90)
 
         let lowerReflection = NSGradient(colors: [
             .clear,
-            NSColor(calibratedRed: 0.082, green: 0.082, blue: 0.102, alpha: 0.12),
+            NSColor(calibratedRed: 0.082, green: 0.082, blue: 0.102, alpha: 0.06),
             .clear
         ])
         lowerReflection?.draw(in: bounds.insetBy(dx: 0, dy: bounds.height * 0.18), angle: -90)
@@ -541,8 +542,8 @@ final class NotchPanelView: NSView {
 
         let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 23.5, yRadius: 23.5)
         let borderColor = isDropTargeted
-            ? NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 0.42)
-            : NSColor.white.withAlphaComponent(0.06)
+            ? NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 0.24)
+            : NSColor.white.withAlphaComponent(0.05)
         borderColor.setStroke()
         border.lineWidth = 1
         border.stroke()
@@ -877,7 +878,7 @@ final class AmbientGlowView: NSView {
         let now = CACurrentMediaTime()
         let deltaTime = now - (lastFrameTime ?? now)
         lastFrameTime = now
-        phase += CGFloat(deltaTime) * 2.4
+        phase += CGFloat(deltaTime) * 1.55
         needsDisplay = true
     }
 
@@ -891,47 +892,47 @@ final class AmbientGlowView: NSView {
         bounds.fill()
 
         let ribbonRect = NSRect(
-            x: bounds.midX - bounds.width * 0.29,
-            y: bounds.midY - 19,
-            width: bounds.width * 0.58,
-            height: 38
+            x: bounds.midX - bounds.width * 0.21,
+            y: bounds.midY - 14,
+            width: bounds.width * 0.42,
+            height: 28
         )
-        drawAmbientWave(in: ribbonRect, alpha: isDropTargeted ? 0.34 : 0.26)
-        drawBrightWave(in: ribbonRect.insetBy(dx: 0, dy: 13), alpha: isDropTargeted ? 0.68 : 0.52)
+        drawAmbientWave(in: ribbonRect, alpha: isDropTargeted ? 0.18 : 0.14)
+        drawBrightWave(in: ribbonRect.insetBy(dx: 0, dy: 11), alpha: isDropTargeted ? 0.42 : 0.32)
         drawReflection(in: ribbonRect)
 
         drawGlow(
             color: NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 1.0),
             center: NSPoint(x: bounds.midX + sin(phase * 0.43) * bounds.width * 0.09, y: ribbonRect.midY + 4),
-            radius: 54
+            radius: 38
         )
         drawGlow(
             color: NSColor(calibratedRed: 0.42, green: 0.18, blue: 1.00, alpha: 1.0),
             center: NSPoint(x: bounds.midX + cos(phase * 0.31) * bounds.width * 0.08, y: ribbonRect.midY - 2),
-            radius: 48
+            radius: 34
         )
         drawGlow(
             color: NSColor(calibratedRed: 1.00, green: 0.10, blue: 0.65, alpha: 1.0),
             center: NSPoint(x: bounds.midX + sin(phase * 0.37 + 1.2) * bounds.width * 0.10, y: ribbonRect.midY + 2),
-            radius: 42
+            radius: 28
         )
 
         if isDropTargeted {
             drawGlow(
                 color: NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: 1.0),
                 center: NSPoint(x: bounds.midX, y: bounds.midY),
-                radius: 86
+                radius: 58
             )
         }
     }
 
     private func drawAmbientWave(in rect: NSRect, alpha: CGFloat) {
-        drawWave(in: rect, lineWidth: 28, alpha: alpha, blurRadius: 0)
+        drawWave(in: rect, lineWidth: 22, alpha: alpha, blurRadius: 18)
     }
 
     private func drawBrightWave(in rect: NSRect, alpha: CGFloat) {
-        drawWave(in: rect, lineWidth: 9, alpha: alpha, blurRadius: 0)
-        drawWave(in: rect.insetBy(dx: rect.width * 0.28, dy: 2), lineWidth: 3, alpha: min(0.65, alpha + 0.10), blurRadius: 0)
+        drawWave(in: rect, lineWidth: 5, alpha: alpha, blurRadius: 5)
+        drawWave(in: rect.insetBy(dx: rect.width * 0.30, dy: 2), lineWidth: 2, alpha: min(0.45, alpha + 0.08), blurRadius: 2)
     }
 
     private func drawReflection(in rect: NSRect) {
@@ -939,8 +940,13 @@ final class AmbientGlowView: NSView {
         let x = bounds.midX - width / 2 + sin(phase * 0.18) * bounds.width * 0.10
         let reflectionRect = NSRect(x: x, y: rect.midY + 14, width: width, height: 5)
         let path = NSBezierPath(roundedRect: reflectionRect, xRadius: 2.5, yRadius: 2.5)
-        NSColor.white.withAlphaComponent(0.05).setFill()
+        let shadow = NSShadow()
+        shadow.shadowBlurRadius = 5
+        shadow.shadowColor = NSColor.white.withAlphaComponent(0.04)
+        shadow.set()
+        NSColor.white.withAlphaComponent(0.045).setFill()
         path.fill()
+        NSShadow().set()
     }
 
     private func drawWave(in rect: NSRect, lineWidth: CGFloat, alpha: CGFloat, blurRadius: CGFloat) {
@@ -957,9 +963,17 @@ final class AmbientGlowView: NSView {
             segment.lineWidth = lineWidth
             segment.lineCapStyle = .round
             segment.lineJoinStyle = .round
-            color(at: progress, alpha: alpha).setStroke()
+            let strokeColor = color(at: progress, alpha: alpha)
+            if blurRadius > 0 {
+                let shadow = NSShadow()
+                shadow.shadowBlurRadius = blurRadius
+                shadow.shadowColor = strokeColor.withAlphaComponent(alpha * 0.55)
+                shadow.set()
+            }
+            strokeColor.setStroke()
             segment.stroke()
         }
+        NSShadow().set()
     }
 
     private func wavePoints(in rect: NSRect) -> [NSPoint] {
@@ -972,9 +986,9 @@ final class AmbientGlowView: NSView {
             let x = rect.minX + progress * rect.width
             let normalizedX = progress
             let y = rect.midY
-                + sin(normalizedX * .pi * 2 + phase) * 5
-                + sin(normalizedX * .pi * 4 - phase * 0.65) * 2
-                + sin(normalizedX * .pi * 7 + phase * 0.35) * 1
+                + sin(normalizedX * .pi * 2 + phase) * 3.5
+                + sin(normalizedX * .pi * 4 - phase * 0.70) * 1.4
+                + sin(normalizedX * .pi * 7 + phase * 0.35) * 0.7
             points.append(NSPoint(x: x, y: y))
         }
 
@@ -990,9 +1004,9 @@ final class AmbientGlowView: NSView {
         let cyan = gaussian(position, center: cyanPosition, width: 0.18)
         let blue = gaussian(position, center: 0.34 + sin(phase * 0.27) * 0.05, width: 0.20)
         let violet = gaussian(position, center: violetPosition, width: 0.16)
-        let magenta = gaussian(position, center: magentaPosition, width: 0.12) * 0.44
-        let warm = gaussian(position, center: warmPosition, width: 0.08) * 0.20
-        let white = gaussian(position, center: cyanPosition + 0.08, width: 0.07) * 0.62
+        let magenta = gaussian(position, center: magentaPosition, width: 0.10) * 0.28
+        let warm = gaussian(position, center: warmPosition, width: 0.06) * 0.08
+        let white = gaussian(position, center: cyanPosition + 0.08, width: 0.06) * 0.42
 
         let red = 0.10 * cyan + 0.08 * blue + 0.42 * violet + 1.00 * magenta + 1.00 * warm + 0.92 * white
         let green = 0.90 * cyan + 0.42 * blue + 0.18 * violet + 0.10 * magenta + 0.48 * warm + 0.98 * white
@@ -1013,7 +1027,7 @@ final class AmbientGlowView: NSView {
     }
 
     private func drawGlow(color: NSColor, center: NSPoint, radius: CGFloat) {
-        let alpha: CGFloat = isDropTargeted ? 0.18 : 0.10
+        let alpha: CGFloat = isDropTargeted ? 0.10 : 0.075
         let gradient = NSGradient(colors: [
             color.withAlphaComponent(alpha),
             color.withAlphaComponent(alpha * 0.20),
