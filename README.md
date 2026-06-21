@@ -9,6 +9,7 @@ Current behavior:
 - Hover near the notch area to reveal the panel.
 - Enjoy a smooth animated reveal with a soft ambient glow.
 - Drop files onto the panel to keep a small temporary shelf of recent files.
+- Switch to the calendar tab for a compact current-month view.
 - Feel lightweight trackpad haptics when the panel opens or files are added on supported Macs.
 - Click the menu bar laptop icon to show or hide the panel manually.
 
@@ -34,6 +35,7 @@ Good next learning steps:
 
 - Open dropped files from the shelf.
 - Persist the shelf between launches.
+- Add event data to the calendar tab.
 - Add quick widgets: calendar, timers, clipboard history, and media controls.
 - Package the executable as a signed `.app`.
 

@@ -38,7 +38,7 @@ app.delegate = appDelegate
 app.run()
 
 final class NotchPanelController {
-    private let expandedPanelSize = NSSize(width: 520, height: 118)
+    private let expandedPanelSize = NSSize(width: 560, height: 190)
     private let panel: NSPanel
     private let contentView = NotchPanelView()
     private var targetFrame = NSRect.zero
@@ -215,10 +215,14 @@ final class NotchHoverController {
 
 final class NotchPanelView: NSView {
     private let titleLabel = NSTextField(labelWithString: "Useful Notch")
-    private let subtitleLabel = NSTextField(labelWithString: "Drop files here to keep them close.")
     private let glowView = AmbientGlowView()
-    private let stackView = NSStackView()
+    private let headerStackView = NSStackView()
+    private let subtitleLabel = NSTextField(labelWithString: "Drop files here to keep them close.")
+    private let tabControl = NSSegmentedControl(labels: ["Shelf", "Calendar"], trackingMode: .selectOne, target: nil, action: nil)
+    private let contentContainer = NSView()
+    private let shelfView = NSView()
     private let fileStackView = NSStackView()
+    private let calendarView = CalendarMonthView()
     private var fileURLs: [URL] = []
     private var isDropTargeted = false
 
@@ -235,21 +239,34 @@ final class NotchPanelView: NSView {
         subtitleLabel.font = .systemFont(ofSize: 12, weight: .regular)
         subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.72)
 
-        stackView.orientation = .vertical
-        stackView.alignment = .leading
-        stackView.spacing = 4
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(subtitleLabel)
+        headerStackView.orientation = .vertical
+        headerStackView.alignment = .leading
+        headerStackView.spacing = 4
+        headerStackView.translatesAutoresizingMaskIntoConstraints = false
+        headerStackView.addArrangedSubview(titleLabel)
+        headerStackView.addArrangedSubview(subtitleLabel)
 
+        tabControl.selectedSegment = 0
+        tabControl.target = self
+        tabControl.action = #selector(tabChanged)
+        tabControl.translatesAutoresizingMaskIntoConstraints = false
+
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
+        shelfView.translatesAutoresizingMaskIntoConstraints = false
+        calendarView.translatesAutoresizingMaskIntoConstraints = false
         fileStackView.orientation = .horizontal
         fileStackView.alignment = .centerY
         fileStackView.spacing = 8
         fileStackView.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(glowView)
-        addSubview(stackView)
-        addSubview(fileStackView)
+        addSubview(headerStackView)
+        addSubview(tabControl)
+        addSubview(contentContainer)
+
+        contentContainer.addSubview(shelfView)
+        contentContainer.addSubview(calendarView)
+        shelfView.addSubview(fileStackView)
 
         NSLayoutConstraint.activate([
             glowView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -257,16 +274,36 @@ final class NotchPanelView: NSView {
             glowView.topAnchor.constraint(equalTo: topAnchor),
             glowView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            headerStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
+            headerStackView.trailingAnchor.constraint(lessThanOrEqualTo: tabControl.leadingAnchor, constant: -16),
+            headerStackView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
 
-            fileStackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
-            fileStackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -22),
-            fileStackView.topAnchor.constraint(equalTo: stackView.bottomAnchor, constant: 12),
+            tabControl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
+            tabControl.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            tabControl.widthAnchor.constraint(equalToConstant: 168),
+
+            contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
+            contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -22),
+            contentContainer.topAnchor.constraint(equalTo: headerStackView.bottomAnchor, constant: 14),
+            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -18),
+
+            shelfView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            shelfView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            shelfView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            shelfView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+
+            calendarView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
+            calendarView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
+            calendarView.topAnchor.constraint(equalTo: contentContainer.topAnchor),
+            calendarView.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor),
+
+            fileStackView.leadingAnchor.constraint(equalTo: shelfView.leadingAnchor),
+            fileStackView.trailingAnchor.constraint(lessThanOrEqualTo: shelfView.trailingAnchor),
+            fileStackView.centerYAnchor.constraint(equalTo: shelfView.centerYAnchor),
             fileStackView.heightAnchor.constraint(equalToConstant: 28)
         ])
 
+        calendarView.isHidden = true
         updateFileShelf()
     }
 
@@ -280,6 +317,16 @@ final class NotchPanelView: NSView {
 
     func stopAmbientAnimation() {
         glowView.stop()
+    }
+
+    @objc private func tabChanged() {
+        let showsCalendar = tabControl.selectedSegment == 1
+        shelfView.isHidden = showsCalendar
+        calendarView.isHidden = !showsCalendar
+        subtitleLabel.stringValue = showsCalendar
+            ? "Your month at a glance."
+            : "Drop files here to keep them close."
+        Haptics.tabChanged()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -388,6 +435,196 @@ enum Haptics {
             .generic,
             performanceTime: .now
         )
+    }
+
+    static func tabChanged() {
+        NSHapticFeedbackManager.defaultPerformer.perform(
+            .alignment,
+            performanceTime: .now
+        )
+    }
+}
+
+final class CalendarMonthView: NSView {
+    private let monthLabel = NSTextField(labelWithString: "")
+    private let gridStackView = NSStackView()
+    private let calendar = Calendar.current
+    private let today = Date()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        monthLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        monthLabel.textColor = .white
+        monthLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        gridStackView.orientation = .vertical
+        gridStackView.alignment = .leading
+        gridStackView.spacing = 3
+        gridStackView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(monthLabel)
+        addSubview(gridStackView)
+
+        NSLayoutConstraint.activate([
+            monthLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            monthLabel.topAnchor.constraint(equalTo: topAnchor),
+
+            gridStackView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gridStackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            gridStackView.topAnchor.constraint(equalTo: monthLabel.bottomAnchor, constant: 6),
+            gridStackView.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor)
+        ])
+
+        buildCalendar()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    private func buildCalendar() {
+        monthLabel.stringValue = monthTitle(for: today)
+
+        gridStackView.addArrangedSubview(makeWeekdayRow())
+
+        let days = daysForVisibleMonth()
+        stride(from: 0, to: days.count, by: 7).forEach { index in
+            let week = Array(days[index..<min(index + 7, days.count)])
+            gridStackView.addArrangedSubview(makeDayRow(days: week))
+        }
+    }
+
+    private func makeWeekdayRow() -> NSStackView {
+        let row = makeRow()
+        weekdaySymbols().forEach { symbol in
+            let label = makeCellLabel(symbol.uppercased(), color: NSColor.white.withAlphaComponent(0.42), weight: .semibold)
+            row.addArrangedSubview(label)
+        }
+        return row
+    }
+
+    private func makeDayRow(days: [CalendarDay]) -> NSStackView {
+        let row = makeRow()
+        days.forEach { day in
+            row.addArrangedSubview(CalendarDayCell(day: day))
+        }
+        return row
+    }
+
+    private func makeRow() -> NSStackView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 5
+        row.translatesAutoresizingMaskIntoConstraints = false
+        return row
+    }
+
+    private func makeCellLabel(_ text: String, color: NSColor, weight: NSFont.Weight) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 9, weight: weight)
+        label.textColor = color
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            label.widthAnchor.constraint(equalToConstant: 24),
+            label.heightAnchor.constraint(equalToConstant: 14)
+        ])
+
+        return label
+    }
+
+    private func monthTitle(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale.current
+        formatter.dateFormat = "LLLL yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func weekdaySymbols() -> [String] {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        let symbols = formatter.shortStandaloneWeekdaySymbols ?? formatter.shortWeekdaySymbols ?? []
+        guard symbols.count == 7 else {
+            return ["S", "M", "T", "W", "T", "F", "S"]
+        }
+
+        let firstWeekdayIndex = calendar.firstWeekday - 1
+        return Array(symbols[firstWeekdayIndex...] + symbols[..<firstWeekdayIndex]).map { String($0.prefix(1)) }
+    }
+
+    private func daysForVisibleMonth() -> [CalendarDay] {
+        guard
+            let monthInterval = calendar.dateInterval(of: .month, for: today),
+            let monthRange = calendar.range(of: .day, in: .month, for: today),
+            let firstMonthWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start)
+        else {
+            return []
+        }
+
+        let numberOfWeeks = Int(ceil(Double(monthRange.count + leadingBlankCount(firstMonthWeek.start, monthInterval.start)) / 7.0))
+        let visibleDayCount = max(numberOfWeeks, 5) * 7
+
+        return (0..<visibleDayCount).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: firstMonthWeek.start) else {
+                return nil
+            }
+
+            return CalendarDay(
+                number: calendar.component(.day, from: date),
+                isInCurrentMonth: calendar.isDate(date, equalTo: today, toGranularity: .month),
+                isToday: calendar.isDateInToday(date)
+            )
+        }
+    }
+
+    private func leadingBlankCount(_ gridStart: Date, _ monthStart: Date) -> Int {
+        calendar.dateComponents([.day], from: gridStart, to: monthStart).day ?? 0
+    }
+}
+
+struct CalendarDay {
+    let number: Int
+    let isInCurrentMonth: Bool
+    let isToday: Bool
+}
+
+final class CalendarDayCell: NSView {
+    init(day: CalendarDay) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        translatesAutoresizingMaskIntoConstraints = false
+
+        layer?.cornerRadius = 7
+        layer?.backgroundColor = day.isToday
+            ? NSColor.systemBlue.withAlphaComponent(0.86).cgColor
+            : NSColor.clear.cgColor
+
+        let label = NSTextField(labelWithString: String(day.number))
+        label.font = .systemFont(ofSize: 10, weight: day.isToday ? .bold : .medium)
+        label.textColor = day.isInCurrentMonth
+            ? .white
+            : NSColor.white.withAlphaComponent(0.28)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(label)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 24),
+            heightAnchor.constraint(equalToConstant: 16),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 
