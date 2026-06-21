@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -24,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let notchPanelController {
             hoverController = NotchHoverController(panelController: notchPanelController)
             hoverController?.start()
+
+            if ProcessInfo.processInfo.arguments.contains("--debug-siri-cycle") {
+                notchPanelController.runDebugCycle()
+            }
         }
     }
 
@@ -38,11 +43,13 @@ app.delegate = appDelegate
 app.run()
 
 final class NotchPanelController {
-    private let expandedPanelSize = NSSize(width: 560, height: 190)
+    private let metrics = SiriNotchMetrics.defaultMetrics()
     private let panel: NSPanel
-    private let contentView = NotchPanelView()
+    private let siriController = SiriNotchController()
+    private let hostingView: NSHostingView<SiriNotchAnimationView>
     private var targetFrame = NSRect.zero
     private var isAnimating = false
+    private var transitionGeneration = 0
 
     var isVisible: Bool {
         panel.isVisible || isAnimating
@@ -53,8 +60,17 @@ final class NotchPanelController {
     }
 
     init() {
+        hostingView = NSHostingView(
+            rootView: SiriNotchAnimationView(controller: siriController, metrics: metrics)
+        )
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+
         panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: expandedPanelSize),
+            contentRect: NSRect(
+                origin: .zero,
+                size: NSSize(width: metrics.maximumCanvasWidth, height: metrics.maximumCanvasHeight)
+            ),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -65,52 +81,46 @@ final class NotchPanelController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.contentView = contentView
+        panel.contentView = hostingView
     }
 
     func show() {
+        transitionGeneration += 1
+
         guard !panel.isVisible else {
+            siriController.activate()
             return
         }
 
         isAnimating = true
         targetFrame = positionedPanelFrame()
-        panel.setFrame(collapsedNotchFrame(from: targetFrame), display: false)
-        panel.alphaValue = 0
-        contentView.prepareForReveal()
+        panel.setFrame(targetFrame, display: false)
+        panel.alphaValue = 1
         panel.orderFrontRegardless()
         Haptics.panelOpened()
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.42
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.15, 0.95, 0.18, 1.0)
-            panel.animator().alphaValue = 1
-            panel.animator().setFrame(targetFrame, display: true)
-        } completionHandler: { [weak self] in
-            self?.isAnimating = false
-        }
-        contentView.revealContent()
+        siriController.activate()
+        isAnimating = false
     }
 
     func hide() {
-        guard panel.isVisible else {
+        guard panel.isVisible || isAnimating else {
             return
         }
 
-        let expandedFrame = targetFrame == .zero ? positionedPanelFrame() : targetFrame
-        let hiddenFrame = collapsedNotchFrame(from: expandedFrame)
+        transitionGeneration += 1
+        let generation = transitionGeneration
         isAnimating = true
-        contentView.prepareForReveal()
+        siriController.dismiss()
 
-        panel.setFrame(expandedFrame, display: false)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.24
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0.0, 0.85, 0.35)
-            panel.animator().alphaValue = 0
-            panel.animator().setFrame(hiddenFrame, display: true)
-        } completionHandler: { [weak self] in
-            self?.panel.orderOut(nil)
-            self?.isAnimating = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.46) { [weak self] in
+            guard let self else {
+                return
+            }
+            guard self.transitionGeneration == generation else {
+                return
+            }
+            self.panel.orderOut(nil)
+            self.isAnimating = false
         }
     }
 
@@ -122,23 +132,30 @@ final class NotchPanelController {
         }
     }
 
+    func runDebugCycle() {
+        targetFrame = positionedPanelFrame()
+        panel.setFrame(targetFrame, display: false)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        siriController.runDebugCycle()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.15) { [weak self] in
+            self?.panel.orderOut(nil)
+        }
+    }
+
     private func positionedPanelFrame() -> NSRect {
         guard let screen = NSScreen.main else {
             return panel.frame
         }
 
         let screenFrame = screen.visibleFrame
-        let x = screenFrame.midX - expandedPanelSize.width / 2
-        let y = screenFrame.maxY - expandedPanelSize.height - 8
-        return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
-    }
-
-    private func collapsedNotchFrame(from frame: NSRect) -> NSRect {
-        NSRect(
-            x: frame.midX - 108,
-            y: frame.maxY - 34,
-            width: 216,
-            height: 34
+        let size = NSSize(width: metrics.maximumCanvasWidth, height: metrics.maximumCanvasHeight)
+        let x = screenFrame.midX - size.width / 2
+        let y = screen.frame.maxY - size.height
+        return NSRect(
+            origin: NSPoint(x: x, y: y),
+            size: size
         )
     }
 }

@@ -29,6 +29,18 @@ swift run UsefulNotch
 
 The app appears in the menu bar. Move your pointer near the top-center notch area to show the panel, drop files onto it, or click the laptop icon to show or hide it manually.
 
+For the current Command Line Tools workaround, compile directly:
+
+```sh
+swiftc -module-cache-path /private/tmp/useful-notch-module-cache Sources/UsefulNotch/main.swift Sources/UsefulNotch/SiriNotch.swift -o /private/tmp/UsefulNotch -framework AppKit -framework QuartzCore -framework SwiftUI
+```
+
+To run the Siri animation debug cycle from a bundled app, pass:
+
+```sh
+--debug-siri-cycle
+```
+
 ## Project Direction
 
 Good next learning steps:

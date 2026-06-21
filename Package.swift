@@ -16,7 +16,8 @@ let package = Package(
             path: "Sources/UsefulNotch",
             linkerSettings: [
                 .linkedFramework("AppKit"),
-                .linkedFramework("QuartzCore")
+                .linkedFramework("QuartzCore"),
+                .linkedFramework("SwiftUI")
             ]
         )
     ]
