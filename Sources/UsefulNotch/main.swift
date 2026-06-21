@@ -75,20 +75,21 @@ final class NotchPanelController {
 
         isAnimating = true
         targetFrame = positionedPanelFrame()
-        panel.setFrame(startFrame(from: targetFrame), display: false)
+        panel.setFrame(collapsedNotchFrame(from: targetFrame), display: false)
         panel.alphaValue = 0
+        contentView.prepareForReveal()
         panel.orderFrontRegardless()
-        contentView.startAmbientAnimation()
         Haptics.panelOpened()
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.28
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1.0, 0.3, 1.0)
+            context.duration = 0.42
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.15, 0.95, 0.18, 1.0)
             panel.animator().alphaValue = 1
             panel.animator().setFrame(targetFrame, display: true)
         } completionHandler: { [weak self] in
             self?.isAnimating = false
         }
+        contentView.revealContent()
     }
 
     func hide() {
@@ -97,18 +98,18 @@ final class NotchPanelController {
         }
 
         let expandedFrame = targetFrame == .zero ? positionedPanelFrame() : targetFrame
-        let hiddenFrame = startFrame(from: expandedFrame)
+        let hiddenFrame = collapsedNotchFrame(from: expandedFrame)
         isAnimating = true
+        contentView.prepareForReveal()
 
         panel.setFrame(expandedFrame, display: false)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = 0.24
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0.0, 0.85, 0.35)
             panel.animator().alphaValue = 0
             panel.animator().setFrame(hiddenFrame, display: true)
         } completionHandler: { [weak self] in
             self?.panel.orderOut(nil)
-            self?.contentView.stopAmbientAnimation()
             self?.isAnimating = false
         }
     }
@@ -132,8 +133,13 @@ final class NotchPanelController {
         return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
     }
 
-    private func startFrame(from frame: NSRect) -> NSRect {
-        frame.offsetBy(dx: 0, dy: 18).insetBy(dx: 18, dy: 8)
+    private func collapsedNotchFrame(from frame: NSRect) -> NSRect {
+        NSRect(
+            x: frame.midX - 108,
+            y: frame.maxY - 34,
+            width: 216,
+            height: 34
+        )
     }
 }
 
@@ -311,12 +317,35 @@ final class NotchPanelView: NSView {
         nil
     }
 
-    func startAmbientAnimation() {
-        glowView.start()
+    func prepareForReveal() {
+        headerStackView.alphaValue = 0
+        tabControl.alphaValue = 0
+        contentContainer.alphaValue = 0
+        glowView.alphaValue = 0
     }
 
-    func stopAmbientAnimation() {
-        glowView.stop()
+    func revealContent() {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            context.allowsImplicitAnimation = true
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            glowView.animator().alphaValue = 1
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.20
+                context.allowsImplicitAnimation = true
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.headerStackView.animator().alphaValue = 1
+                self.tabControl.animator().alphaValue = 1
+                self.contentContainer.animator().alphaValue = 1
+            }
+        }
     }
 
     @objc private func tabChanged() {
@@ -334,15 +363,15 @@ final class NotchPanelView: NSView {
 
         let background = NSBezierPath(roundedRect: bounds, xRadius: 24, yRadius: 24)
         let fillColor = isDropTargeted
-            ? NSColor(calibratedRed: 0.10, green: 0.16, blue: 0.14, alpha: 0.96)
-            : NSColor(calibratedWhite: 0.04, alpha: 0.84)
+            ? NSColor(calibratedRed: 0.02, green: 0.08, blue: 0.07, alpha: 0.98)
+            : NSColor(calibratedWhite: 0.015, alpha: 0.96)
         fillColor.setFill()
         background.fill()
 
         let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 23.5, yRadius: 23.5)
         let borderColor = isDropTargeted
-            ? NSColor.systemMint.withAlphaComponent(0.75)
-            : NSColor.white.withAlphaComponent(0.12)
+            ? NSColor.systemMint.withAlphaComponent(0.62)
+            : NSColor.white.withAlphaComponent(0.08)
         borderColor.setStroke()
         border.lineWidth = 1
         border.stroke()
@@ -635,9 +664,6 @@ final class AmbientGlowView: NSView {
         }
     }
 
-    private var timer: Timer?
-    private var phase: CGFloat = 0
-
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = false
@@ -645,26 +671,6 @@ final class AmbientGlowView: NSView {
 
     required init?(coder: NSCoder) {
         nil
-    }
-
-    func start() {
-        guard timer == nil else {
-            return
-        }
-
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self else {
-                return
-            }
-
-            phase += 0.024
-            needsDisplay = true
-        }
-    }
-
-    func stop() {
-        timer?.invalidate()
-        timer = nil
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -678,18 +684,18 @@ final class AmbientGlowView: NSView {
 
         drawGlow(
             color: NSColor.systemBlue,
-            center: animatedPoint(baseX: 0.28, baseY: 0.55, xWave: 0.09, yWave: 0.18, offset: 0),
-            radius: 190
+            center: NSPoint(x: bounds.width * 0.28, y: bounds.height * 0.62),
+            radius: 165
         )
         drawGlow(
             color: NSColor.systemPink,
-            center: animatedPoint(baseX: 0.70, baseY: 0.50, xWave: 0.11, yWave: 0.16, offset: 1.6),
-            radius: 170
+            center: NSPoint(x: bounds.width * 0.72, y: bounds.height * 0.46),
+            radius: 150
         )
         drawGlow(
             color: NSColor.systemTeal,
-            center: animatedPoint(baseX: 0.50, baseY: 0.35, xWave: 0.16, yWave: 0.10, offset: 3.1),
-            radius: 160
+            center: NSPoint(x: bounds.width * 0.50, y: bounds.height * 0.28),
+            radius: 140
         )
 
         if isDropTargeted {
@@ -701,21 +707,8 @@ final class AmbientGlowView: NSView {
         }
     }
 
-    private func animatedPoint(
-        baseX: CGFloat,
-        baseY: CGFloat,
-        xWave: CGFloat,
-        yWave: CGFloat,
-        offset: CGFloat
-    ) -> NSPoint {
-        NSPoint(
-            x: bounds.width * (baseX + sin(phase + offset) * xWave),
-            y: bounds.height * (baseY + cos(phase * 0.8 + offset) * yWave)
-        )
-    }
-
     private func drawGlow(color: NSColor, center: NSPoint, radius: CGFloat) {
-        let alpha: CGFloat = isDropTargeted ? 0.38 : 0.24
+        let alpha: CGFloat = isDropTargeted ? 0.24 : 0.08
         let gradient = NSGradient(colors: [
             color.withAlphaComponent(alpha),
             color.withAlphaComponent(alpha * 0.32),
