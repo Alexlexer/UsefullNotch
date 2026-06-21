@@ -35,8 +35,8 @@ struct SiriNotchMetrics {
             blobHeight: blobHeight,
             capsuleWidth: capsuleWidth,
             capsuleHeight: capsuleHeight,
-            maximumCanvasWidth: 560,
-            maximumCanvasHeight: 220
+            maximumCanvasWidth: 480,
+            maximumCanvasHeight: 150
         )
     }
 }
@@ -269,7 +269,7 @@ struct SiriNotchAnimationView: View {
                         .opacity(presentation.contentOpacity)
                         .offset(y: max(0, (metrics.capsuleHeight - 48) / 2))
                     }
-                    .shadow(color: .black.opacity(0.30), radius: 18, y: 10)
+                    .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
                     .transition(.opacity)
                     .animation(animation(for: controller.state), value: controller.state)
                 }
@@ -478,48 +478,48 @@ struct SiriLightWaveView: View {
 
     var body: some View {
         Canvas { context, size in
-            let baseY = min(metrics.blobHeight * 0.63, size.height * 0.36)
+            let baseY = min(metrics.blobHeight * 0.68, size.height * 0.42)
             let centerX = size.width / 2 + parameters.horizontalOffset
-            let waveWidth = metrics.blobWidth * 0.82
-            let waveHeight = 18 + parameters.amplitude
+            let waveWidth = metrics.blobWidth * 0.58
+            let waveHeight = 7 + parameters.amplitude * 0.45
             let colourState = colourState()
-            let brightness = intensity * colourState.brightnessPulse
+            let brightness = intensity * colourState.brightnessPulse * 0.72
             let warmScale = min(1, max(0, (intensity - 0.28) / 0.72))
 
-            context.addFilter(.blur(radius: 22))
+            context.addFilter(.blur(radius: 18))
             drawRibbon(
                 context: context,
                 center: CGPoint(x: centerX, y: baseY),
-                width: waveWidth * 1.12,
-                height: waveHeight * 2.1,
+                width: waveWidth * 1.08,
+                height: waveHeight * 1.45,
                 phase: parameters.phase,
-                stops: ambientStops(alpha: 0.38 * brightness, state: colourState, warmScale: warmScale)
+                stops: ambientStops(alpha: 0.28 * brightness, state: colourState, warmScale: warmScale)
             )
 
-            context.addFilter(.blur(radius: 7))
+            context.addFilter(.blur(radius: 6))
             drawRibbon(
                 context: context,
                 center: CGPoint(x: centerX, y: baseY),
-                width: waveWidth * 0.82,
-                height: waveHeight * 0.72,
+                width: waveWidth * 0.92,
+                height: waveHeight * 0.48,
                 phase: parameters.phase + parameters.colourPhase,
-                stops: mainStops(alpha: 0.92 * brightness, state: colourState, warmScale: warmScale)
+                stops: mainStops(alpha: 0.84 * brightness, state: colourState, warmScale: warmScale)
             )
 
-            context.addFilter(.blur(radius: 3))
+            context.addFilter(.blur(radius: 2.5))
             drawCore(
                 context: context,
                 center: CGPoint(x: centerX + sin(parameters.phase * 0.9) * 18, y: baseY - waveHeight * 0.08),
                 width: waveWidth * 0.38,
                 height: max(3, waveHeight * 0.18),
-                alpha: 0.76 * brightness
+                alpha: 0.66 * brightness
             )
 
-            context.addFilter(.blur(radius: 12))
-            drawBlob(context: context, center: CGPoint(x: centerX - 58 * sin(parameters.phase * 0.9), y: baseY + 10), color: SiriPalette.siriCyan.opacity(0.30 * brightness), radius: 26)
-            drawBlob(context: context, center: CGPoint(x: centerX + 44 * cos(parameters.phase * 0.72), y: baseY - 6), color: SiriPalette.siriMagenta.opacity(0.22 * brightness * warmScale), radius: 30)
-            drawBlob(context: context, center: CGPoint(x: centerX + 70 * sin(parameters.phase * 0.58 + 1.3), y: baseY + 5), color: SiriPalette.siriOrange.opacity(0.16 * brightness * warmScale), radius: 22)
-            drawBlob(context: context, center: CGPoint(x: centerX + 8, y: baseY - waveHeight * 0.22), color: SiriPalette.siriWhiteHot.opacity(0.34 * brightness), radius: 9)
+            context.addFilter(.blur(radius: 9))
+            drawBlob(context: context, center: CGPoint(x: centerX - 42 * sin(parameters.phase * 0.9), y: baseY + 5), color: SiriPalette.siriCyan.opacity(0.20 * brightness), radius: 18)
+            drawBlob(context: context, center: CGPoint(x: centerX + 36 * cos(parameters.phase * 0.72), y: baseY - 4), color: SiriPalette.siriMagenta.opacity(0.14 * brightness * warmScale), radius: 20)
+            drawBlob(context: context, center: CGPoint(x: centerX + 52 * sin(parameters.phase * 0.58 + 1.3), y: baseY + 4), color: SiriPalette.siriOrange.opacity(0.10 * brightness * warmScale), radius: 16)
+            drawBlob(context: context, center: CGPoint(x: centerX + 8, y: baseY - waveHeight * 0.22), color: SiriPalette.siriWhiteHot.opacity(0.28 * brightness), radius: 7)
         }
         .drawingGroup()
         .blendMode(.plusLighter)

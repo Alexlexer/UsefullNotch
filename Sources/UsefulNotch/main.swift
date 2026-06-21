@@ -1,6 +1,5 @@
 import AppKit
 import QuartzCore
-import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -26,9 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hoverController = NotchHoverController(panelController: notchPanelController)
             hoverController?.start()
 
-            if ProcessInfo.processInfo.arguments.contains("--debug-siri-cycle") {
-                notchPanelController.runDebugCycle()
-            }
         }
     }
 
@@ -43,10 +39,9 @@ app.delegate = appDelegate
 app.run()
 
 final class NotchPanelController {
-    private let metrics = SiriNotchMetrics.defaultMetrics()
+    private let expandedPanelSize = NSSize(width: 560, height: 190)
     private let panel: NSPanel
-    private let siriController = SiriNotchController()
-    private let hostingView: NSHostingView<SiriNotchAnimationView>
+    private let contentView = NotchPanelView()
     private var targetFrame = NSRect.zero
     private var isAnimating = false
     private var transitionGeneration = 0
@@ -60,17 +55,8 @@ final class NotchPanelController {
     }
 
     init() {
-        hostingView = NSHostingView(
-            rootView: SiriNotchAnimationView(controller: siriController, metrics: metrics)
-        )
-        hostingView.wantsLayer = true
-        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-
         panel = NSPanel(
-            contentRect: NSRect(
-                origin: .zero,
-                size: NSSize(width: metrics.maximumCanvasWidth, height: metrics.maximumCanvasHeight)
-            ),
+            contentRect: NSRect(origin: .zero, size: expandedPanelSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -81,25 +67,33 @@ final class NotchPanelController {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.contentView = hostingView
+        panel.contentView = contentView
     }
 
     func show() {
         transitionGeneration += 1
 
         guard !panel.isVisible else {
-            siriController.activate()
             return
         }
 
         isAnimating = true
         targetFrame = positionedPanelFrame()
-        panel.setFrame(targetFrame, display: false)
-        panel.alphaValue = 1
+        panel.setFrame(collapsedPillFrame(from: targetFrame), display: false)
+        panel.alphaValue = 0
+        contentView.prepareForReveal()
         panel.orderFrontRegardless()
         Haptics.panelOpened()
-        siriController.activate()
-        isAnimating = false
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.24
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.18, 0.90, 0.22, 1.0)
+            panel.animator().alphaValue = 1
+            panel.animator().setFrame(targetFrame, display: true)
+        } completionHandler: { [weak self] in
+            self?.isAnimating = false
+        }
+        contentView.revealContent()
     }
 
     func hide() {
@@ -110,13 +104,19 @@ final class NotchPanelController {
         transitionGeneration += 1
         let generation = transitionGeneration
         isAnimating = true
-        siriController.dismiss()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.46) { [weak self] in
-            guard let self else {
-                return
-            }
-            guard self.transitionGeneration == generation else {
+        let expandedFrame = targetFrame == .zero ? positionedPanelFrame() : targetFrame
+        let hiddenFrame = collapsedPillFrame(from: expandedFrame)
+        contentView.prepareForReveal()
+        panel.setFrame(expandedFrame, display: false)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0.0, 0.85, 0.35)
+            panel.animator().alphaValue = 0
+            panel.animator().setFrame(hiddenFrame, display: true)
+        } completionHandler: { [weak self] in
+            guard let self, self.transitionGeneration == generation else {
                 return
             }
             self.panel.orderOut(nil)
@@ -132,30 +132,23 @@ final class NotchPanelController {
         }
     }
 
-    func runDebugCycle() {
-        targetFrame = positionedPanelFrame()
-        panel.setFrame(targetFrame, display: false)
-        panel.alphaValue = 1
-        panel.orderFrontRegardless()
-        siriController.runDebugCycle()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.15) { [weak self] in
-            self?.panel.orderOut(nil)
-        }
-    }
-
     private func positionedPanelFrame() -> NSRect {
         guard let screen = NSScreen.main else {
             return panel.frame
         }
 
         let screenFrame = screen.visibleFrame
-        let size = NSSize(width: metrics.maximumCanvasWidth, height: metrics.maximumCanvasHeight)
-        let x = screenFrame.midX - size.width / 2
-        let y = screen.frame.maxY - size.height
-        return NSRect(
-            origin: NSPoint(x: x, y: y),
-            size: size
+        let x = screenFrame.midX - expandedPanelSize.width / 2
+        let y = screenFrame.maxY - expandedPanelSize.height - 8
+        return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
+    }
+
+    private func collapsedPillFrame(from frame: NSRect) -> NSRect {
+        NSRect(
+            x: frame.midX - 132,
+            y: frame.maxY - 42,
+            width: 264,
+            height: 42
         )
     }
 }
@@ -379,16 +372,29 @@ final class NotchPanelView: NSView {
         super.draw(dirtyRect)
 
         let background = NSBezierPath(roundedRect: bounds, xRadius: 24, yRadius: 24)
-        let fillColor = isDropTargeted
-            ? NSColor(calibratedRed: 0.02, green: 0.08, blue: 0.07, alpha: 0.98)
-            : NSColor(calibratedWhite: 0.015, alpha: 0.96)
-        fillColor.setFill()
-        background.fill()
+        NSGraphicsContext.saveGraphicsState()
+        background.addClip()
+
+        let surfaceGradient = NSGradient(colors: [
+            NSColor(calibratedRed: 0.045, green: 0.045, blue: 0.060, alpha: 0.98),
+            NSColor(calibratedRed: 0.020, green: 0.020, blue: 0.030, alpha: 0.98),
+            NSColor.black.withAlphaComponent(0.98)
+        ])
+        surfaceGradient?.draw(in: bounds, angle: -90)
+
+        let lowerReflection = NSGradient(colors: [
+            .clear,
+            NSColor(calibratedRed: 0.082, green: 0.082, blue: 0.102, alpha: 0.12),
+            .clear
+        ])
+        lowerReflection?.draw(in: bounds.insetBy(dx: 0, dy: bounds.height * 0.18), angle: -90)
+
+        NSGraphicsContext.restoreGraphicsState()
 
         let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 23.5, yRadius: 23.5)
         let borderColor = isDropTargeted
-            ? NSColor.systemMint.withAlphaComponent(0.62)
-            : NSColor.white.withAlphaComponent(0.08)
+            ? NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 0.42)
+            : NSColor.white.withAlphaComponent(0.06)
         borderColor.setStroke()
         border.lineWidth = 1
         border.stroke()
@@ -699,36 +705,67 @@ final class AmbientGlowView: NSView {
         NSColor.clear.setFill()
         bounds.fill()
 
+        let ribbonRect = NSRect(
+            x: bounds.midX - bounds.width * 0.27,
+            y: bounds.midY - 11,
+            width: bounds.width * 0.54,
+            height: 22
+        )
+        drawRibbon(in: ribbonRect, alpha: isDropTargeted ? 0.86 : 0.56)
+
         drawGlow(
-            color: NSColor.systemBlue,
-            center: NSPoint(x: bounds.width * 0.28, y: bounds.height * 0.62),
-            radius: 165
+            color: NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 1.0),
+            center: NSPoint(x: bounds.width * 0.42, y: ribbonRect.midY + 4),
+            radius: 54
         )
         drawGlow(
-            color: NSColor.systemPink,
-            center: NSPoint(x: bounds.width * 0.72, y: bounds.height * 0.46),
-            radius: 150
+            color: NSColor(calibratedRed: 0.42, green: 0.18, blue: 1.00, alpha: 1.0),
+            center: NSPoint(x: bounds.width * 0.53, y: ribbonRect.midY - 2),
+            radius: 48
         )
         drawGlow(
-            color: NSColor.systemTeal,
-            center: NSPoint(x: bounds.width * 0.50, y: bounds.height * 0.28),
-            radius: 140
+            color: NSColor(calibratedRed: 1.00, green: 0.10, blue: 0.65, alpha: 1.0),
+            center: NSPoint(x: bounds.width * 0.62, y: ribbonRect.midY + 2),
+            radius: 42
         )
 
         if isDropTargeted {
             drawGlow(
-                color: NSColor.systemMint,
+                color: NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: 1.0),
                 center: NSPoint(x: bounds.midX, y: bounds.midY),
-                radius: 220
+                radius: 86
             )
         }
     }
 
+    private func drawRibbon(in rect: NSRect, alpha: CGFloat) {
+        let path = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+        NSGraphicsContext.saveGraphicsState()
+        path.addClip()
+
+        let gradient = NSGradient(colors: [
+            NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: alpha * 0.70),
+            NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: alpha * 0.85),
+            NSColor(calibratedRed: 0.08, green: 0.42, blue: 1.00, alpha: alpha),
+            NSColor(calibratedRed: 0.42, green: 0.18, blue: 1.00, alpha: alpha * 0.88),
+            NSColor(calibratedRed: 1.00, green: 0.10, blue: 0.65, alpha: alpha * 0.70),
+            NSColor(calibratedRed: 1.00, green: 0.48, blue: 0.08, alpha: alpha * 0.30)
+        ])
+        gradient?.draw(in: rect, angle: 0)
+
+        let coreRect = rect.insetBy(dx: rect.width * 0.28, dy: rect.height * 0.38)
+        let core = NSBezierPath(roundedRect: coreRect, xRadius: coreRect.height / 2, yRadius: coreRect.height / 2)
+        NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: alpha * 0.62).setFill()
+        core.fill()
+
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     private func drawGlow(color: NSColor, center: NSPoint, radius: CGFloat) {
-        let alpha: CGFloat = isDropTargeted ? 0.24 : 0.08
+        let alpha: CGFloat = isDropTargeted ? 0.18 : 0.10
         let gradient = NSGradient(colors: [
             color.withAlphaComponent(alpha),
-            color.withAlphaComponent(alpha * 0.32),
+            color.withAlphaComponent(alpha * 0.20),
             .clear
         ])
 
