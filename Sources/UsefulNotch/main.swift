@@ -1,5 +1,11 @@
 import AppKit
 import QuartzCore
+import SwiftUI
+
+enum NotchPresentationMode {
+    case usefulPanel
+    case siri
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -17,19 +23,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = statusImage
         statusItem.button?.title = statusImage == nil ? "UN" : ""
         statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePanel)
+        statusItem.button?.action = #selector(statusItemClicked)
         self.statusItem = statusItem
+
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Show UsefulNotch", action: #selector(showUsefulPanel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Show Siri Animation", action: #selector(showSiriAnimation), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Hide", action: #selector(hidePanel), keyEquivalent: ""))
+        menu.items.forEach { item in
+            item.target = self
+        }
+        statusItem.menu = menu
 
         notchPanelController = NotchPanelController()
         if let notchPanelController {
             hoverController = NotchHoverController(panelController: notchPanelController)
             hoverController?.start()
 
+            if ProcessInfo.processInfo.arguments.contains("--debug-siri-cycle") {
+                notchPanelController.runSiriDebugCycle()
+            }
         }
     }
 
-    @objc private func togglePanel() {
+    @objc private func statusItemClicked() {
         notchPanelController?.toggle()
+    }
+
+    @objc private func showUsefulPanel() {
+        notchPanelController?.showUsefulPanel()
+    }
+
+    @objc private func showSiriAnimation() {
+        notchPanelController?.showSiriAnimation()
+    }
+
+    @objc private func hidePanel() {
+        notchPanelController?.hide()
     }
 }
 
@@ -42,9 +73,12 @@ final class NotchPanelController {
     private let expandedPanelSize = NSSize(width: 560, height: 190)
     private let panel: NSPanel
     private let contentView = NotchPanelView()
+    private let siriController = SiriNotchController()
+    private let siriHostingView: NSHostingView<SiriNotchAnimationView>
     private var targetFrame = NSRect.zero
     private var isAnimating = false
     private var transitionGeneration = 0
+    private var presentationMode: NotchPresentationMode = .usefulPanel
 
     var isVisible: Bool {
         panel.isVisible || isAnimating
@@ -55,6 +89,15 @@ final class NotchPanelController {
     }
 
     init() {
+        let siriMetrics = SiriNotchMetrics.defaultMetrics()
+        siriHostingView = NSHostingView(
+            rootView: SiriNotchAnimationView(controller: siriController, metrics: siriMetrics)
+        )
+        siriHostingView.wantsLayer = true
+        siriHostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        siriHostingView.translatesAutoresizingMaskIntoConstraints = false
+        siriHostingView.isHidden = true
+
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: expandedPanelSize),
             styleMask: [.nonactivatingPanel, .borderless],
@@ -68,12 +111,29 @@ final class NotchPanelController {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.contentView = contentView
+
+        contentView.addSubview(siriHostingView)
+        NSLayoutConstraint.activate([
+            siriHostingView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            siriHostingView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            siriHostingView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            siriHostingView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
     }
 
     func show() {
+        showUsefulPanel()
+    }
+
+    func showUsefulPanel() {
         transitionGeneration += 1
+        presentationMode = .usefulPanel
+        siriController.dismiss()
+        contentView.setUsefulContentVisible(true)
+        siriHostingView.isHidden = true
 
         guard !panel.isVisible else {
+            contentView.startAnimation()
             return
         }
 
@@ -84,6 +144,7 @@ final class NotchPanelController {
         contentView.prepareForReveal()
         panel.orderFrontRegardless()
         Haptics.panelOpened()
+        contentView.startAnimation()
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.24
@@ -108,6 +169,10 @@ final class NotchPanelController {
         let expandedFrame = targetFrame == .zero ? positionedPanelFrame() : targetFrame
         let hiddenFrame = collapsedPillFrame(from: expandedFrame)
         contentView.prepareForReveal()
+        contentView.stopAnimation()
+        if presentationMode == .siri {
+            siriController.dismiss()
+        }
         panel.setFrame(expandedFrame, display: false)
 
         NSAnimationContext.runAnimationGroup { context in
@@ -120,6 +185,9 @@ final class NotchPanelController {
                 return
             }
             self.panel.orderOut(nil)
+            self.siriHostingView.isHidden = true
+            self.contentView.setUsefulContentVisible(true)
+            self.presentationMode = .usefulPanel
             self.isAnimating = false
         }
     }
@@ -129,6 +197,46 @@ final class NotchPanelController {
             hide()
         } else {
             show()
+        }
+    }
+
+    func showSiriAnimation() {
+        transitionGeneration += 1
+        presentationMode = .siri
+
+        if !panel.isVisible {
+            targetFrame = positionedPanelFrame()
+            panel.setFrame(targetFrame, display: false)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+        }
+
+        contentView.stopAnimation()
+        contentView.setUsefulContentVisible(false)
+        siriHostingView.isHidden = false
+        siriController.activate()
+    }
+
+    func runSiriDebugCycle() {
+        transitionGeneration += 1
+        presentationMode = .siri
+        targetFrame = positionedPanelFrame()
+        panel.setFrame(targetFrame, display: false)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        contentView.stopAnimation()
+        contentView.setUsefulContentVisible(false)
+        siriHostingView.isHidden = false
+        siriController.runDebugCycle()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.25) { [weak self] in
+            guard let self else {
+                return
+            }
+            self.presentationMode = .usefulPanel
+            self.siriHostingView.isHidden = true
+            self.contentView.setUsefulContentVisible(true)
+            self.contentView.startAnimation()
         }
     }
 
@@ -229,7 +337,26 @@ final class NotchHoverController {
     }
 }
 
+final class NotchGlassEffectView: NSVisualEffectView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        material = .hudWindow
+        blendingMode = .behindWindow
+        state = .active
+        isEmphasized = false
+        wantsLayer = true
+        layer?.cornerRadius = 24
+        layer?.masksToBounds = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
 final class NotchPanelView: NSView {
+    private let glassView = NotchGlassEffectView()
     private let titleLabel = NSTextField(labelWithString: "Useful Notch")
     private let glowView = AmbientGlowView()
     private let headerStackView = NSStackView()
@@ -247,6 +374,7 @@ final class NotchPanelView: NSView {
         wantsLayer = true
         registerForDraggedTypes([.fileURL])
 
+        glassView.translatesAutoresizingMaskIntoConstraints = false
         glowView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -275,6 +403,7 @@ final class NotchPanelView: NSView {
         fileStackView.spacing = 8
         fileStackView.translatesAutoresizingMaskIntoConstraints = false
 
+        addSubview(glassView)
         addSubview(glowView)
         addSubview(headerStackView)
         addSubview(tabControl)
@@ -285,6 +414,11 @@ final class NotchPanelView: NSView {
         shelfView.addSubview(fileStackView)
 
         NSLayoutConstraint.activate([
+            glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             glowView.leadingAnchor.constraint(equalTo: leadingAnchor),
             glowView.trailingAnchor.constraint(equalTo: trailingAnchor),
             glowView.topAnchor.constraint(equalTo: topAnchor),
@@ -334,6 +468,21 @@ final class NotchPanelView: NSView {
         glowView.alphaValue = 0
     }
 
+    func startAnimation() {
+        glowView.startAnimation()
+    }
+
+    func stopAnimation() {
+        glowView.stopAnimation()
+    }
+
+    func setUsefulContentVisible(_ isVisible: Bool) {
+        headerStackView.isHidden = !isVisible
+        tabControl.isHidden = !isVisible
+        contentContainer.isHidden = !isVisible
+        glowView.isHidden = !isVisible
+    }
+
     func revealContent() {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
@@ -376,9 +525,8 @@ final class NotchPanelView: NSView {
         background.addClip()
 
         let surfaceGradient = NSGradient(colors: [
-            NSColor(calibratedRed: 0.045, green: 0.045, blue: 0.060, alpha: 0.98),
-            NSColor(calibratedRed: 0.020, green: 0.020, blue: 0.030, alpha: 0.98),
-            NSColor.black.withAlphaComponent(0.98)
+            NSColor.black.withAlphaComponent(isDropTargeted ? 0.38 : 0.34),
+            NSColor.black.withAlphaComponent(isDropTargeted ? 0.58 : 0.52)
         ])
         surfaceGradient?.draw(in: bounds, angle: -90)
 
@@ -687,6 +835,10 @@ final class AmbientGlowView: NSView {
         }
     }
 
+    private var phase: CGFloat = 0
+    private var animationTimer: Timer?
+    private var lastFrameTime: TimeInterval?
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = false
@@ -694,6 +846,39 @@ final class AmbientGlowView: NSView {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        if window == nil {
+            stopAnimation()
+        }
+    }
+
+    func startAnimation() {
+        guard animationTimer == nil else {
+            return
+        }
+
+        lastFrameTime = CACurrentMediaTime()
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 45.0, repeats: true) { [weak self] _ in
+            self?.tick()
+        }
+    }
+
+    func stopAnimation() {
+        animationTimer?.invalidate()
+        animationTimer = nil
+        lastFrameTime = nil
+    }
+
+    private func tick() {
+        let now = CACurrentMediaTime()
+        let deltaTime = now - (lastFrameTime ?? now)
+        lastFrameTime = now
+        phase += CGFloat(deltaTime) * 2.4
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -706,26 +891,28 @@ final class AmbientGlowView: NSView {
         bounds.fill()
 
         let ribbonRect = NSRect(
-            x: bounds.midX - bounds.width * 0.27,
-            y: bounds.midY - 11,
-            width: bounds.width * 0.54,
-            height: 22
+            x: bounds.midX - bounds.width * 0.29,
+            y: bounds.midY - 19,
+            width: bounds.width * 0.58,
+            height: 38
         )
-        drawRibbon(in: ribbonRect, alpha: isDropTargeted ? 0.86 : 0.56)
+        drawAmbientWave(in: ribbonRect, alpha: isDropTargeted ? 0.34 : 0.26)
+        drawBrightWave(in: ribbonRect.insetBy(dx: 0, dy: 13), alpha: isDropTargeted ? 0.68 : 0.52)
+        drawReflection(in: ribbonRect)
 
         drawGlow(
             color: NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: 1.0),
-            center: NSPoint(x: bounds.width * 0.42, y: ribbonRect.midY + 4),
+            center: NSPoint(x: bounds.midX + sin(phase * 0.43) * bounds.width * 0.09, y: ribbonRect.midY + 4),
             radius: 54
         )
         drawGlow(
             color: NSColor(calibratedRed: 0.42, green: 0.18, blue: 1.00, alpha: 1.0),
-            center: NSPoint(x: bounds.width * 0.53, y: ribbonRect.midY - 2),
+            center: NSPoint(x: bounds.midX + cos(phase * 0.31) * bounds.width * 0.08, y: ribbonRect.midY - 2),
             radius: 48
         )
         drawGlow(
             color: NSColor(calibratedRed: 1.00, green: 0.10, blue: 0.65, alpha: 1.0),
-            center: NSPoint(x: bounds.width * 0.62, y: ribbonRect.midY + 2),
+            center: NSPoint(x: bounds.midX + sin(phase * 0.37 + 1.2) * bounds.width * 0.10, y: ribbonRect.midY + 2),
             radius: 42
         )
 
@@ -738,27 +925,91 @@ final class AmbientGlowView: NSView {
         }
     }
 
-    private func drawRibbon(in rect: NSRect, alpha: CGFloat) {
-        let path = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
-        NSGraphicsContext.saveGraphicsState()
-        path.addClip()
+    private func drawAmbientWave(in rect: NSRect, alpha: CGFloat) {
+        drawWave(in: rect, lineWidth: 28, alpha: alpha, blurRadius: 0)
+    }
 
-        let gradient = NSGradient(colors: [
-            NSColor(calibratedRed: 0.10, green: 0.90, blue: 1.00, alpha: alpha * 0.70),
-            NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: alpha * 0.85),
-            NSColor(calibratedRed: 0.08, green: 0.42, blue: 1.00, alpha: alpha),
-            NSColor(calibratedRed: 0.42, green: 0.18, blue: 1.00, alpha: alpha * 0.88),
-            NSColor(calibratedRed: 1.00, green: 0.10, blue: 0.65, alpha: alpha * 0.70),
-            NSColor(calibratedRed: 1.00, green: 0.48, blue: 0.08, alpha: alpha * 0.30)
-        ])
-        gradient?.draw(in: rect, angle: 0)
+    private func drawBrightWave(in rect: NSRect, alpha: CGFloat) {
+        drawWave(in: rect, lineWidth: 9, alpha: alpha, blurRadius: 0)
+        drawWave(in: rect.insetBy(dx: rect.width * 0.28, dy: 2), lineWidth: 3, alpha: min(0.65, alpha + 0.10), blurRadius: 0)
+    }
 
-        let coreRect = rect.insetBy(dx: rect.width * 0.28, dy: rect.height * 0.38)
-        let core = NSBezierPath(roundedRect: coreRect, xRadius: coreRect.height / 2, yRadius: coreRect.height / 2)
-        NSColor(calibratedRed: 0.92, green: 0.98, blue: 1.00, alpha: alpha * 0.62).setFill()
-        core.fill()
+    private func drawReflection(in rect: NSRect) {
+        let width = bounds.width * 0.45
+        let x = bounds.midX - width / 2 + sin(phase * 0.18) * bounds.width * 0.10
+        let reflectionRect = NSRect(x: x, y: rect.midY + 14, width: width, height: 5)
+        let path = NSBezierPath(roundedRect: reflectionRect, xRadius: 2.5, yRadius: 2.5)
+        NSColor.white.withAlphaComponent(0.05).setFill()
+        path.fill()
+    }
 
-        NSGraphicsContext.restoreGraphicsState()
+    private func drawWave(in rect: NSRect, lineWidth: CGFloat, alpha: CGFloat, blurRadius: CGFloat) {
+        let points = wavePoints(in: rect)
+        guard points.count > 1 else {
+            return
+        }
+
+        for index in 1..<points.count {
+            let progress = CGFloat(index) / CGFloat(points.count - 1)
+            let segment = NSBezierPath()
+            segment.move(to: points[index - 1])
+            segment.line(to: points[index])
+            segment.lineWidth = lineWidth
+            segment.lineCapStyle = .round
+            segment.lineJoinStyle = .round
+            color(at: progress, alpha: alpha).setStroke()
+            segment.stroke()
+        }
+    }
+
+    private func wavePoints(in rect: NSRect) -> [NSPoint] {
+        let pointCount = 64
+        var points: [NSPoint] = []
+        points.reserveCapacity(pointCount)
+
+        for index in 0..<pointCount {
+            let progress = CGFloat(index) / CGFloat(pointCount - 1)
+            let x = rect.minX + progress * rect.width
+            let normalizedX = progress
+            let y = rect.midY
+                + sin(normalizedX * .pi * 2 + phase) * 5
+                + sin(normalizedX * .pi * 4 - phase * 0.65) * 2
+                + sin(normalizedX * .pi * 7 + phase * 0.35) * 1
+            points.append(NSPoint(x: x, y: y))
+        }
+
+        return points
+    }
+
+    private func color(at position: CGFloat, alpha: CGFloat) -> NSColor {
+        let cyanPosition = 0.18 + sin(phase * 0.43) * 0.08
+        let violetPosition = 0.48 + cos(phase * 0.31) * 0.07
+        let magentaPosition = 0.70 + sin(phase * 0.37 + 1.2) * 0.08
+        let warmPosition = 0.84 + sin(phase * 0.61 + 0.5) * 0.10
+
+        let cyan = gaussian(position, center: cyanPosition, width: 0.18)
+        let blue = gaussian(position, center: 0.34 + sin(phase * 0.27) * 0.05, width: 0.20)
+        let violet = gaussian(position, center: violetPosition, width: 0.16)
+        let magenta = gaussian(position, center: magentaPosition, width: 0.12) * 0.44
+        let warm = gaussian(position, center: warmPosition, width: 0.08) * 0.20
+        let white = gaussian(position, center: cyanPosition + 0.08, width: 0.07) * 0.62
+
+        let red = 0.10 * cyan + 0.08 * blue + 0.42 * violet + 1.00 * magenta + 1.00 * warm + 0.92 * white
+        let green = 0.90 * cyan + 0.42 * blue + 0.18 * violet + 0.10 * magenta + 0.48 * warm + 0.98 * white
+        let blueChannel = 1.00 * cyan + 1.00 * blue + 1.00 * violet + 0.65 * magenta + 0.08 * warm + 1.00 * white
+        let total = max(0.22, cyan + blue + violet + magenta + warm + white)
+
+        return NSColor(
+            calibratedRed: min(red / total, 1),
+            green: min(green / total, 1),
+            blue: min(blueChannel / total, 1),
+            alpha: alpha
+        )
+    }
+
+    private func gaussian(_ x: CGFloat, center: CGFloat, width: CGFloat) -> CGFloat {
+        let distance = (x - center) / width
+        return exp(-distance * distance)
     }
 
     private func drawGlow(color: NSColor, center: NSPoint, radius: CGFloat) {
