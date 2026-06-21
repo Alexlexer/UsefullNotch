@@ -247,7 +247,7 @@ final class NotchPanelController {
 
         let screenFrame = screen.visibleFrame
         let x = screenFrame.midX - expandedPanelSize.width / 2
-        let y = screen.frame.maxY - expandedPanelSize.height - 3
+        let y = screenFrame.maxY - expandedPanelSize.height - 3
         return NSRect(origin: NSPoint(x: x, y: y), size: expandedPanelSize)
     }
 
